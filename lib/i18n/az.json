@@ -1,0 +1,30 @@
+{
+  "home": {
+    "title": "Luhive Community Engine",
+    "subtitle": "Etkinlik göndermək üçün topluluğunuza verilən linki istifadə edin."
+  },
+  "bot": {
+    "start": {
+      "welcome": "Xoş gəldin! Luhive-ə bağlı olan bütün topluluqların yeni tədbirlərini artıq burada görəcəksən.",
+      "already_subscribed": "Artıq abunəsən — yeni tədbirlər gələn kimi burada olacaq."
+    },
+    "buttons": {
+      "register": "Qeydiyyatdan keç",
+      "details": "Ətraflı"
+    },
+    "event_card": {
+      "from_community": "Təşkilatçı: {community}",
+      "date_label": "Tarix",
+      "location_label": "Məkan",
+      "online_label": "Onlayn",
+      "meeting_link_label": "Görüşmə linki"
+    },
+    "callback": {
+      "details_sent": "Ətraflı məlumat göndərildi.",
+      "event_not_found": "Bu tədbir artıq mövcud deyil."
+    },
+    "errors": {
+      "generic": "Xəta baş verdi, bir az sonra yenidən cəhd et."
+    }
+  }
+}
