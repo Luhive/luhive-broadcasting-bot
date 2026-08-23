@@ -57,9 +57,11 @@ run(`npx supabase db push`, "2. Veritabanı Tablolarını Uygulama (db push)");
 // 3. Edge Function Deploy
 run(`npx supabase functions deploy telegram-webhook --no-verify-jwt`, "3. Edge Function Deploy Etme");
 
+const luhiveBaseUrl = envConfig.LUHIVE_BASE_URL || "https://dev.luhive.com";
+
 // 4. Supabase Secrets Set
 run(
-  `npx supabase secrets set TELEGRAM_BOT_TOKEN="${botToken}" TELEGRAM_CHANNEL_ID="${channelId}" TELEGRAM_WEBHOOK_SECRET="${tgSecret}" DB_WEBHOOK_SECRET="${dbSecret}"`,
+  `npx supabase secrets set TELEGRAM_BOT_TOKEN="${botToken}" TELEGRAM_CHANNEL_ID="${channelId}" TELEGRAM_WEBHOOK_SECRET="${tgSecret}" DB_WEBHOOK_SECRET="${dbSecret}" LUHIVE_BASE_URL="${luhiveBaseUrl}"`,
   "4. Supabase Ortam Değişkenlerini (Secrets) Kaydetme"
 );
 

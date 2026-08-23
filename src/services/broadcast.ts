@@ -111,7 +111,7 @@ async function broadcastToChannel(
 
   const broadcast = newBroadcast as Broadcast;
   const token = `c_${broadcast.id}`;
-  const keyboard = buildBroadcastKeyboard(event.slug, token, event.id);
+  const keyboard = buildBroadcastKeyboard(event, community, token);
 
   try {
     if (coverUrl) {
@@ -201,7 +201,7 @@ async function broadcastToBotSubscribers(
     }
 
     const token = generateBotToken();
-    const keyboard = buildBroadcastKeyboard(event.slug, token, event.id);
+    const keyboard = buildBroadcastKeyboard(event, community, token);
 
     // Insert broadcast_send record
     const { error: sendInsertError } = await supabase.from("broadcast_send").insert({

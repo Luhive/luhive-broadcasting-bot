@@ -83,11 +83,14 @@ export function formatEventCaption(event: EventRow, community: Community): strin
   return lines.join("\n");
 }
 
-export function buildBroadcastKeyboard(eventSlug: string, token: string, eventId: string) {
-  const eventUrl = `${config.luhiveBaseUrl}/e/${eventSlug}?lt=${token}`;
+export function buildBroadcastKeyboard(event: EventRow, community: Community, token: string) {
+  const baseUrl = config.luhiveBaseUrl || "https://dev.luhive.com";
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
+  const eventUrl = `${cleanBaseUrl}/c/${community.slug}/${event.slug}?lt=${token}`;
+
   const row: InlineButton[] = [
     { text: "Qeydiyyatdan keç", url: eventUrl },
-    { text: "Ətraflı", callback_data: `details:${eventId}` },
+    { text: "Ətraflı", callback_data: `details:${event.id}` },
   ];
   return buildInlineKeyboard([row]);
 }

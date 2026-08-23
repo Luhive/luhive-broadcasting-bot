@@ -30,7 +30,7 @@ export async function handleEventPublished(payload: DatabaseWebhookPayload) {
     .maybeSingle();
 
   if (!community) {
-    console.error(`event ${event.id}: community ${event.community_id} not found`);
+    console.error(`event ${event.id}: community ${event.community_id} bulunamadı`);
     return;
   }
 
@@ -63,7 +63,7 @@ export async function handleEventPublished(payload: DatabaseWebhookPayload) {
       if (createdBroadcast) {
         const broadcast = createdBroadcast as Broadcast;
         const token = `c_${broadcast.id}`;
-        const keyboard = buildBroadcastKeyboard(event, token);
+        const keyboard = buildBroadcastKeyboard(event, typedCommunity, token);
 
         if (coverUrl) {
           await sendPhoto(channelId, coverUrl, caption, keyboard);
@@ -128,7 +128,7 @@ export async function handleEventPublished(payload: DatabaseWebhookPayload) {
     if (clickedIds.has(subscriber.id)) continue;
 
     const token = generateBotToken();
-    const keyboard = buildBroadcastKeyboard(event, token);
+    const keyboard = buildBroadcastKeyboard(event, typedCommunity, token);
 
     await supabase.from("broadcast_send").insert({
       broadcast_id: botBroadcastId,
@@ -142,7 +142,6 @@ export async function handleEventPublished(payload: DatabaseWebhookPayload) {
       : await sendMessage(subscriber.telegram_user_id, caption, keyboard);
 
     if (!result) {
-      // 403 or error
       await supabase
         .from("telegram_subscriber")
         .update({ status: "blocked", updated_at: new Date().toISOString() })

@@ -2,8 +2,6 @@ import type { Community, EventRow } from "./types.ts";
 import { buildInlineKeyboard, type InlineButton } from "./telegram.ts";
 import { getDictionary } from "./i18n.ts";
 
-const LUHIVE_BASE_URL = "https://luhive.com";
-
 const AZ_MONTHS = [
   "Yanvar",
   "Fevral",
@@ -87,9 +85,16 @@ function formatLocationLines(event: EventRow, dict: ReturnType<typeof getDiction
   return lines;
 }
 
-export function buildBroadcastKeyboard(event: EventRow, token: string, language = "az") {
+export function buildBroadcastKeyboard(
+  event: EventRow,
+  community: Community,
+  token: string,
+  language = "az"
+) {
   const dict = getDictionary(language);
-  const eventUrl = `${LUHIVE_BASE_URL}/e/${event.slug}?lt=${token}`;
+  const baseUrl = Deno.env.get("LUHIVE_BASE_URL") || "https://dev.luhive.com";
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
+  const eventUrl = `${cleanBaseUrl}/c/${community.slug}/${event.slug}?lt=${token}`;
 
   const row: InlineButton[] = [
     { text: dict.bot.buttons.register || "Qeydiyyatdan keç", url: eventUrl },
