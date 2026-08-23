@@ -13,6 +13,9 @@
 -- (bkz. SETUP.md). Bu dosya zaten bir kez elle çalıştırıldı; burada sadece
 -- referans/tekrarlanabilirlik için tutuluyor.
 
+drop trigger if exists on_event_published_insert on public.events;
+drop trigger if exists on_event_published_update on public.events;
+
 create trigger on_event_published_insert
 after insert on public.events
 for each row

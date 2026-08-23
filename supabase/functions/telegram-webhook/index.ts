@@ -1,13 +1,7 @@
-// Tek Edge Function, iki farklı tetikleyiciye hizmet ediyor (bkz. §3 mimari):
-//  1. Telegram Bot API webhook (Telegram sunucuları çağırır: message/callback_query)
-//  2. Supabase Database Webhook (events.status='published' olduğunda tetiklenir)
-//
-// Bu fonksiyon `--no-verify-jwt` ile deploy edilmeli (Telegram, Supabase'in
-// beklediği JWT'yi göndermez) — bunun yerine her iki yol da kendi paylaşılan
-// secret'ını header üzerinden doğruluyor. Detaylar için SETUP.md.
 import { handleStart } from "./handlers/start.ts";
 import { handleCallbackQuery } from "./handlers/callback.ts";
 import { handleEventPublished } from "./handlers/event-published.ts";
+import { handleChatMember, handleMyChatMember } from "./handlers/chat-member.ts";
 import type { DatabaseWebhookPayload, TelegramUpdate } from "./types.ts";
 
 Deno.serve(async (req) => {
@@ -32,8 +26,6 @@ Deno.serve(async (req) => {
       await handleEventPublished(body);
     } catch (error) {
       console.error("handleEventPublished error", error);
-      // Supabase Database Webhook'ları hata durumunda retry eder — 500
-      // dönmek bu retry'ı tetikler, kasıtlı.
       return new Response("Internal Error", { status: 500 });
     }
 
@@ -47,16 +39,17 @@ Deno.serve(async (req) => {
     }
 
     try {
-      if (body.message?.text === "/start") {
+      if (body.message?.text?.startsWith("/start")) {
         await handleStart(body);
+      } else if (body.chat_member) {
+        await handleChatMember(body.chat_member);
+      } else if (body.my_chat_member) {
+        await handleMyChatMember(body.my_chat_member);
       } else if (body.callback_query) {
         await handleCallbackQuery(body);
       }
     } catch (error) {
       console.error("telegram update handling error", error);
-      // Telegram'a yine de 200 dönüyoruz: 5xx dönersek Telegram aynı
-      // update'i tekrar tekrar retry eder (long polling YASAK olduğu gibi,
-      // burada da gereksiz retry fırtınası istenmiyor); hata zaten loglandı.
     }
 
     return new Response("ok", { status: 200 });

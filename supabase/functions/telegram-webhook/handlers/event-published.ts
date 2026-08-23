@@ -1,26 +1,25 @@
 import { getSupabaseAdmin } from "../supabase-admin.ts";
 import { sendMessage, sendPhoto } from "../telegram.ts";
-import { formatEventCaption, buildEventKeyboard } from "../format-event.ts";
-import type { BotSubscriber, Community, DatabaseWebhookPayload } from "../types.ts";
+import { formatEventCaption, buildBroadcastKeyboard } from "../format-event.ts";
+import type { Broadcast, Community, DatabaseWebhookPayload, TelegramSubscriber } from "../types.ts";
 
-// Telegram'ın aynı chat'e ~1 msg/sn, genel ~30 msg/sn sınırına karşı basit
-// bir gecikme. 500-2000 abone hedefi (bkz. §7 KPI) için yeterli; çok daha
-// büyük ölçekte bu döngü yerine bir kuyruk (queue) gerekir.
-const DM_DELAY_MS = 40;
+const DM_DELAY_MS = 45;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function generateBotToken(): string {
+  const array = new Uint8Array(8);
+  crypto.getRandomValues(array);
+  return `t_${Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 export async function handleEventPublished(payload: DatabaseWebhookPayload) {
   const event = payload.record;
 
   if (payload.table !== "events" || event.status !== "published") return;
-
-  // draft → published dışındaki update'leri (ör. already-published bir
-  // satırın başka bir alanının değişmesi) yok say — duplicate broadcast'i
-  // engeller. (events.status: draft/published/cancelled — bkz. types.ts)
-  if (payload.old_record?.status === "published") return;
+  if (payload.old_record?.status === "published") return; // prevent duplicate
 
   const supabase = getSupabaseAdmin();
 
@@ -31,66 +30,132 @@ export async function handleEventPublished(payload: DatabaseWebhookPayload) {
     .maybeSingle();
 
   if (!community) {
-    console.error(`event ${event.id}: community ${event.community_id} bulunamadı`);
+    console.error(`event ${event.id}: community ${event.community_id} not found`);
     return;
   }
 
   const typedCommunity = community as Community;
   const caption = formatEventCaption(event, typedCommunity);
-  const keyboard = buildEventKeyboard(event, typedCommunity);
   const coverUrl = event.cover_url || typedCommunity.cover_url;
 
-  // Kanal — tüm topluluklar tek bir merkezi Luhive kanalına düşüyor (bkz.
-  // §3 mimari); communities'te per-community bir kanal kolonu yok.
+  // 1. Channel Broadcast
   const channelId = Deno.env.get("TELEGRAM_CHANNEL_ID");
-
   if (channelId) {
-    // telegram_event_broadcasts zaten var (subscriber'a bağlı değil, sadece
-    // event_id + channel_message_id) — idempotency için önce kontrol
-    // ediliyor, webhook retry'ında kanala ikinci kez post atılmasın diye.
-    const { data: existingBroadcast } = await supabase
-      .from("telegram_event_broadcasts")
+    const { data: existingChannelBroadcast } = await supabase
+      .from("broadcast")
       .select("id")
       .eq("event_id", event.id)
+      .eq("surface", "channel")
       .maybeSingle();
 
-    if (!existingBroadcast) {
-      const result = coverUrl
-        ? await sendPhoto(channelId, coverUrl, caption, keyboard)
-        : await sendMessage(channelId, caption, keyboard);
+    if (!existingChannelBroadcast) {
+      const { data: createdBroadcast } = await supabase
+        .from("broadcast")
+        .insert({
+          event_id: event.id,
+          surface: "channel",
+          sent_count: 1,
+          sent_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
 
-      await supabase.from("telegram_event_broadcasts").insert({
-        event_id: event.id,
-        channel_message_id: result?.message_id ?? null,
-      });
+      if (createdBroadcast) {
+        const broadcast = createdBroadcast as Broadcast;
+        const token = `c_${broadcast.id}`;
+        const keyboard = buildBroadcastKeyboard(event, token);
+
+        if (coverUrl) {
+          await sendPhoto(channelId, coverUrl, caption, keyboard);
+        } else {
+          await sendMessage(channelId, caption, keyboard);
+        }
+      }
     }
   }
 
-  // DM — bot_event_deliveries ile idempotent (webhook retry güvenliği, §6).
-  const [{ data: subscribers }, { data: alreadyDelivered }] = await Promise.all([
-    supabase.from("bot_subscribers").select("id, username, language"),
-    supabase.from("bot_event_deliveries").select("subscriber_id").eq("event_id", event.id),
-  ]);
+  // 2. Bot Broadcast
+  let botBroadcastId: string;
+  const { data: existingBotBroadcast } = await supabase
+    .from("broadcast")
+    .select("id")
+    .eq("event_id", event.id)
+    .eq("surface", "bot")
+    .maybeSingle();
 
-  const deliveredIds = new Set((alreadyDelivered ?? []).map((row) => row.subscriber_id));
+  if (existingBotBroadcast) {
+    botBroadcastId = existingBotBroadcast.id;
+  } else {
+    const { data: createdBotBroadcast } = await supabase
+      .from("broadcast")
+      .insert({
+        event_id: event.id,
+        surface: "bot",
+        sent_count: 0,
+        sent_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
 
-  for (const subscriber of (subscribers ?? []) as BotSubscriber[]) {
-    if (deliveredIds.has(subscriber.id)) continue;
+    if (!createdBotBroadcast) return;
+    botBroadcastId = (createdBotBroadcast as Broadcast).id;
+  }
+
+  // Find active bot subscribers
+  const { data: subscribersData } = await supabase
+    .from("telegram_subscriber")
+    .select("*")
+    .not("bot_started_at", "is", null)
+    .eq("status", "active");
+
+  const subscribers = (subscribersData ?? []) as TelegramSubscriber[];
+  if (subscribers.length === 0) return;
+
+  // Skip subscribers who already clicked for this event (D5)
+  const { data: clickedSends } = await supabase
+    .from("broadcast_send")
+    .select("telegram_subscriber_id, broadcast!inner(event_id)")
+    .eq("broadcast.event_id", event.id)
+    .not("clicked_at", "is", null);
+
+  const clickedIds = new Set(
+    (clickedSends || []).map((row) => (row as unknown as { telegram_subscriber_id: string }).telegram_subscriber_id)
+  );
+
+  let sentCount = 0;
+
+  for (const subscriber of subscribers) {
+    if (clickedIds.has(subscriber.id)) continue;
+
+    const token = generateBotToken();
+    const keyboard = buildBroadcastKeyboard(event, token);
+
+    await supabase.from("broadcast_send").insert({
+      broadcast_id: botBroadcastId,
+      telegram_subscriber_id: subscriber.id,
+      token,
+      delivered_at: new Date().toISOString(),
+    });
 
     const result = coverUrl
-      ? await sendPhoto(subscriber.id, coverUrl, caption, keyboard)
-      : await sendMessage(subscriber.id, caption, keyboard);
+      ? await sendPhoto(subscriber.telegram_user_id, coverUrl, caption, keyboard)
+      : await sendMessage(subscriber.telegram_user_id, caption, keyboard);
 
-    // result === null => Telegram API hata verdi (ör. kullanıcı botu
-    // bloklamış, 403). bot_event_deliveries'e yazılmıyor — delivery rate
-    // metriğine düşer (bkz. §7), broadcast diğer abonelerle devam eder.
-    if (result) {
-      await supabase.from("bot_event_deliveries").insert({
-        event_id: event.id,
-        subscriber_id: subscriber.id,
-      });
+    if (!result) {
+      // 403 or error
+      await supabase
+        .from("telegram_subscriber")
+        .update({ status: "blocked", updated_at: new Date().toISOString() })
+        .eq("id", subscriber.id);
+    } else {
+      sentCount++;
     }
 
     await sleep(DM_DELAY_MS);
   }
+
+  await supabase
+    .from("broadcast")
+    .update({ sent_count: sentCount })
+    .eq("id", botBroadcastId);
 }
