@@ -4,20 +4,63 @@ import { getDictionary } from "./i18n.ts";
 
 const LUHIVE_BASE_URL = "https://luhive.com";
 
+const AZ_MONTHS = [
+  "Yanvar",
+  "Fevral",
+  "Mart",
+  "Aprel",
+  "May",
+  "İyun",
+  "İyul",
+  "Avqust",
+  "Sentyabr",
+  "Oktyabr",
+  "Noyabr",
+  "Dekabr",
+];
+
+export function formatDateTime(isoString: string, timeZone = "Asia/Baku"): string {
+  try {
+    const d = new Date(isoString);
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timeZone || "Asia/Baku",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+
+    const parts = formatter.formatToParts(d);
+    const map: Record<string, string> = {};
+    for (const part of parts) {
+      map[part.type] = part.value;
+    }
+
+    const day = map.day || "01";
+    const monthIndex = parseInt(map.month || "1", 10) - 1;
+    const monthName = AZ_MONTHS[monthIndex] || map.month;
+    const year = map.year || "2026";
+    let hour = map.hour || "00";
+    if (hour === "24") hour = "00";
+    const minute = (map.minute || "00").padStart(2, "0");
+
+    return `${day} ${monthName} ${year}, ${hour.padStart(2, "0")}:${minute}`;
+  } catch {
+    return isoString;
+  }
+}
+
 export function formatEventCaption(event: EventRow, community: Community, language = "az") {
   const dict = getDictionary(language);
-  const date = new Date(event.start_time).toLocaleString("az-AZ", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: event.timezone || "Asia/Baku",
-  });
-
+  const formattedDate = formatDateTime(event.start_time, event.timezone || "Asia/Baku");
   const fromCommunity = dict.bot.event_card.from_community.replace("{community}", community.name);
 
   return [
     `<b>${escapeHtml(event.title)}</b>`,
     "",
-    `📅 ${dict.bot.event_card.date_label}: ${escapeHtml(date)}`,
+    `📅 ${dict.bot.event_card.date_label}: ${escapeHtml(formattedDate)}`,
     ...formatLocationLines(event, dict),
     escapeHtml(fromCommunity),
   ].join("\n");
@@ -47,7 +90,7 @@ function formatLocationLines(event: EventRow, dict: ReturnType<typeof getDiction
 export function buildBroadcastKeyboard(event: EventRow, token: string, language = "az") {
   const dict = getDictionary(language);
   const eventUrl = `${LUHIVE_BASE_URL}/e/${event.slug}?lt=${token}`;
-  
+
   const row: InlineButton[] = [
     { text: dict.bot.buttons.register || "Qeydiyyatdan keç", url: eventUrl },
     { text: dict.bot.buttons.details || "Ətraflı", callback_data: `details:${event.id}` },
